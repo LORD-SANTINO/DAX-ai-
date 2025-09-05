@@ -7,7 +7,7 @@ from telegram.ext import (
     ApplicationBuilder, CommandHandler, MessageHandler,
     filters, ContextTypes, ConversationHandler
 )
-from telegram.exceptions import Forbidden
+from telegram.error import Forbidden
 
 # Logging
 logging.basicConfig(
