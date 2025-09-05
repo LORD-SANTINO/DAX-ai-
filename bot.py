@@ -133,9 +133,12 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def start_cloned_bot(user_id: int, token: str):
     # Stop existing instance if it exists
     if user_id in cloned_apps:
-        await cloned_apps[user_id].updater.stop()
-        await cloned_apps[user_id].stop()
-        await cloned_apps[user_id].shutdown()
+        try:
+            await cloned_apps[user_id].updater.stop()
+            await cloned_apps[user_id].stop()
+            await cloned_apps[user_id].shutdown()
+        except Exception as e:
+            logger.error(f"Error stopping existing bot: {e}")
         del cloned_apps[user_id]
 
     # Create new app for user cloned bot
@@ -155,8 +158,9 @@ async def start_cloned_bot(user_id: int, token: str):
     logger.info(f"Started cloned bot for user {user_id}")
 
 # Graceful shutdown handler
-async def shutdown():
+async def shutdown_application():
     """Shutdown all cloned bot instances"""
+    logger.info("Shutting down all cloned bots...")
     for user_id, app in list(cloned_apps.items()):
         try:
             await app.updater.stop()
@@ -185,11 +189,20 @@ def main():
 
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, chat))
 
-    # Add shutdown handler
-    app.post_shutdown(shutdown)
-
+    # Register shutdown handler using the correct method
+    # The python-telegram-bot v20.x uses a different approach for shutdown handlers
+    # We'll handle shutdown through signal handlers instead
+    
     logger.info("Master bot is running...")
-    app.run_polling()
+    
+    # Run the application with proper signal handling
+    try:
+        app.run_polling()
+    except KeyboardInterrupt:
+        logger.info("Received interrupt signal, shutting down...")
+    finally:
+        # Manual cleanup on shutdown
+        asyncio.run(shutdown_application())
 
 if __name__ == "__main__":
     main()
