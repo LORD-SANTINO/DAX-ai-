@@ -6,7 +6,7 @@ from telegram.ext import (
     ApplicationBuilder, CommandHandler, MessageHandler,
     filters, ContextTypes, ConversationHandler
 )
-from telegram.exceptions import Unauthorized
+from telegram.exceptions import Forbidden
 
 # Logging
 logging.basicConfig(level=logging.INFO)
@@ -89,7 +89,7 @@ async def receive_token(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         return ConversationHandler.END
 
-    except Unauthorized:
+    except Forbidden:
         await update.message.reply_text(
             "❌ Invalid token. Please send a valid Telegram bot token or /cancel."
         )
