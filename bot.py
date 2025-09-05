@@ -29,12 +29,22 @@ if not GEMINI_API_KEYS:
     raise ValueError("No Gemini API keys found in environment variables")
 
 current_key_index = 0
-model = None  # Define model in global scope
+model = None
 
 def configure_gemini():
     global model, current_key_index
-    genai.configure(api_key=GEMINI_API_KEYS[current_key_index])
-    model = genai.GenerativeModel("gemini-1.5-flash")
+    try:
+        genai.configure(api_key=GEMINI_API_KEYS[current_key_index])
+        model = genai.GenerativeModel("gemini-1.5-flash")
+        logger.info(f"Successfully configured Gemini with key #{current_key_index + 1}")
+    except Exception as e:
+        logger.error(f"Failed to configure Gemini: {e}")
+        # Try the next key if available
+        if len(GEMINI_API_KEYS) > 1:
+            current_key_index = (current_key_index + 1) % len(GEMINI_API_KEYS)
+            configure_gemini()
+        else:
+            raise
 
 configure_gemini()
 
@@ -62,13 +72,17 @@ def switch_key():
 
 # Chat handler for main bot
 async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if model is None:
+        await update.message.reply_text("⚠️ Bot is not properly configured. Please contact the administrator.")
+        return
+        
     user_message = update.message.text
     try:
         response = model.generate_content(user_message)
         await update.message.reply_text(response.text)
 
     except Exception as e:
-        if "429" in str(e):
+        if "429" in str(e) or "quota" in str(e).lower():
             switch_key()
             await update.message.reply_text("⚠️ Quota exceeded, switching API key... Please try again.")
         else:
@@ -119,7 +133,9 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def start_cloned_bot(user_id: int, token: str):
     # Stop existing instance if it exists
     if user_id in cloned_apps:
+        await cloned_apps[user_id].updater.stop()
         await cloned_apps[user_id].stop()
+        await cloned_apps[user_id].shutdown()
         del cloned_apps[user_id]
 
     # Create new app for user cloned bot
