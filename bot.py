@@ -6,7 +6,7 @@ from telegram.ext import (
     ApplicationBuilder, CommandHandler, MessageHandler,
     filters, ContextTypes, ConversationHandler
 )
-from telegram.error import Unauthorized
+from telegram.exceptions import Unauthorized
 
 # Logging
 logging.basicConfig(level=logging.INFO)
