@@ -54,95 +54,125 @@ if not TELEGRAM_TOKEN:
 # ====== Conversation States ======
 ASK_TOKEN, ASK_INSTRUCTIONS = range(2)
 
-# Store data
+# Store active cloned apps and their instructions
 cloned_apps = {}
-user_instructions = {}
-user_share_counts = {}  # {user_id: share_count}
-user_share_verified = {}  # {user_id: True/False}
+user_instructions = {}  # {user_id: "custom instructions"}
 
-# Start command
+# NEW: Referral system storage
+user_referrals = {}  # {user_id: {'count': 0, 'verified': False}}
+referral_codes = {}  # {referral_code: user_id}
+referral_users = {}  # {new_user_id: referrer_id} to track who referred whom
+
+# Start command - UPDATED WITH REFERRAL CHECKING
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
+    username = update.effective_user.username or f"user_{user_id}"
     
-    # Check if user needs to share
-    if user_id in user_share_counts and user_share_counts[user_id] < 5:
-        remaining = 5 - user_share_counts[user_id]
+    # Check if this is a referral join
+    if context.args and context.args[0].startswith('ref_'):
+        referral_code = context.args[0]
+        await handle_referral(update, context, referral_code, user_id, username)
+        return
+    
+    # Check if user needs to share (has cloned bot but not enough referrals)
+    if user_id in user_referrals and not user_referrals[user_id]['verified']:
+        remaining = 5 - user_referrals[user_id]['count']
         await update.message.reply_text(
             f"📣 Share with {remaining} more people to remove the watermark!\n\n"
-            "Use /share to get your referral link."
+            "Use /share to get your referral link and instructions."
         )
         return
     
     await update.message.reply_text(
-        "🤖 Hello! I'm your AI bot (Gpt-powered). Send me a message now!\n\n"
-        "Use /clone to create your own AI bot!🙂"
+        "🤖 Hello! I'm your AI bot (GPT-powered). Send me a message!\n\n"
+        "Use /clone to create your own AI bot with your own custom instructions!"
     )
 
-# Share command with referral system
+# NEW: Handle real referrals
+async def handle_referral(update: Update, context: ContextTypes.DEFAULT_TYPE, referral_code: str, new_user_id: int, new_username: str):
+    if referral_code in referral_codes:
+        referrer_id = referral_codes[referral_code]
+        
+        # Check if this new user was already referred by someone
+        if new_user_id not in referral_users:
+            referral_users[new_user_id] = referrer_id
+            
+            # Add to referrer's count if they have a referral record
+            if referrer_id in user_referrals:
+                user_referrals[referrer_id]['count'] += 1
+                logger.info(f"User {referrer_id} got a referral from {new_user_id}. Total: {user_referrals[referrer_id]['count']}")
+                
+                # Notify the referrer
+                try:
+                    remaining = 5 - user_referrals[referrer_id]['count']
+                    if remaining > 0:
+                        await context.bot.send_message(
+                            referrer_id,
+                            f"🎉 @{new_username} joined using your referral link!\n"
+                            f"📊 You need {remaining} more referrals to remove the watermark."
+                        )
+                    else:
+                        user_referrals[referrer_id]['verified'] = True
+                        await context.bot.send_message(
+                            referrer_id,
+                            "✨ Premium Experience Unlocked! ✨\n\n"
+                            "🎊 Thank you for sharing the love!\n"
+                            "✅ The watermark has been removed from your bot\n"
+                            "🌟 Your AI responses will now appear clean & professional\n\n"
+                            "Thank you for being an amazing part of our community!_💫"
+                        )
+                except Exception as e:
+                    logger.error(f"Could not notify referrer {referrer_id}: {e}")
+        
+        # Welcome the new user
+        await update.message.reply_text(
+            f"👋 Welcome! You joined through a friend's referral.\n\n"
+            "This bot lets you create AI assistants with custom personalities!\n\n"
+            "Use /clone to create your own AI bot or just start chatting! 🚀"
+        )
+    else:
+        await update.message.reply_text(
+            "🤖 Hello! Welcome to the DAX AI bot experience!\n\n"
+            "Use /clone to create your own AI assistant with custom instructions!"
+        )
+
+# NEW: Share command with REAL referral system
 async def share_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    username = update.effective_user.username
+    username = update.effective_user.username or f"user_{user_id}"
     
-    referral_link = f"https://t.me/daxotp_bot?start=ref_{user_id}"
+    # Check if user has cloned a bot (only cloned bot users need referrals)
+    if user_id not in cloned_apps:
+        await update.message.reply_text(
+            "⚠️ You need to create your own bot first using /clone to use the referral system!👀"
+        )
+        return
     
-    keyboard = [
-        [InlineKeyboardButton("📤 Share with Friends", url=f"https://t.me/share/url?url={referral_link}&text=Check%20out%20this%20awesome%20AI%20bot%20that%20can%20clone%20itself%20with%20custom%20instructions!%20🚀")],
-        [InlineKeyboardButton("✅ I've Shared", callback_data="shared")]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
+    # Generate unique referral code
+    referral_code = f"ref_{user_id}_{os.urandom(4).hex()}"
+    referral_codes[referral_code] = user_id
+    
+    # Initialize user referrals if not exists
+    if user_id not in user_referrals:
+        user_referrals[user_id] = {'count': 0, 'verified': False}
+    
+    referral_link = f"https://t.me/daxotp_bot?start={referral_code}"
+    remaining = 5 - user_referrals[user_id]['count']
     
     await update.message.reply_text(
-        f"📣 Share this bot with 5 friends to remove the watermark!\n\n"
-        f"🔗 Your referral link: {referral_link}\n\n"
-        "After sharing, click 'I've Shared' to verify!",
-        reply_markup=reply_markup
+        f"📣 Referral Program**\n\n"
+        f"🔗 Your unique link: `{referral_link}`\n\n"
+        f"📊 Progress: {user_referrals[user_id]['count']}/5 referrals\n"
+        f"🎯 Remaining**: {remaining} more to remove watermark\n\n"
+        "How it works:\n"
+        "• Share your unique link with friends\n"
+        "• When they join using your link, it counts\n"
+        "• After 5 real joins, watermark disappears,!\n\n"
+        "✨ No fake clicks - only real joins count!",
+        parse_mode='Markdown'
     )
 
-# Handle share callback
-async def share_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    user_id = query.from_user.id
-    
-    if query.data == "shared":
-        # Initialize share count if not exists
-        if user_id not in user_share_counts:
-            user_share_counts[user_id] = 0
-        
-        if user_share_counts[user_id] < 5:
-            user_share_counts[user_id] += 1
-            remaining = 5 - user_share_counts[user_id]
-            
-            if remaining > 0:
-                await query.message.edit_text(
-                    f"✅ Thanks for sharing! {remaining} more to go!\n\n"
-                    "Keep sharing to remove the watermark completely!. You can do this💪"
-                )
-            else:
-                user_share_verified[user_id] = True
-                await query.message.edit_text(
-                  "🌊 **Watermark Cleared**\n\n"
-                  "Your generosity has been rewarded.\n"
-                  "From now on, your conversations will flow\n"
-                  "without any distractions.\n\n"
-                  "Thank you for spreading the Bot.🙏"
-                )
-        else:
-            await query.answer("You've already completed sharing! 🎉")
-    
-    await query.answer()
-
-# Check referral links
-async def check_referral(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if context.args and context.args[0].startswith('ref_'):
-        try:
-            referrer_id = int(context.args[0][4:])
-            if referrer_id in user_share_counts and user_share_counts[referrer_id] < 5:
-                user_share_counts[referrer_id] += 1
-                logger.info(f"User {referrer_id} got a referral!yayyy🤧 Total: {user_share_counts[referrer_id]}")
-        except ValueError:
-            pass
-
-# Enhanced chat handler with watermark
+# Enhanced chat handler with REAL watermark system
 async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if model is None:
         await update.message.reply_text("⚠️ Bot is not properly configured. Please contact the administrator.@dn_feedbackbot")
@@ -152,19 +182,22 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     
     try:
-        # Check if user has custom instructions
+        # Check if this user has custom instructions
         instructions = user_instructions.get(user_id, "")
+        
+        # Create enhanced prompt with custom instructions
         enhanced_prompt = f"{instructions}\n\nUser: {user_message}" if instructions else user_message
         
         response = model.generate_content(enhanced_prompt)
         response_text = response.text
         
-        # Add watermark if user hasn't shared enough
-        if user_id not in user_share_verified or not user_share_verified[user_id]:
-            watermark = "\n\n┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n🔹 Cloned by @daxotp_bot\nShare with 5 friends to remove this"
+        # Add watermark if user has cloned a bot but hasn't reached 5 REAL referrals
+        if user_id in cloned_apps and (user_id not in user_referrals or not user_referrals[user_id].get('verified', False)):
+            remaining = 5 - user_referrals.get(user_id, {'count': 0})['count']
+            watermark = f"\n\n┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n🔹 Cloned by @daxotp_bot\n📊 {remaining} referrals needed to remove"
             response_text += watermark
         
-        await update.message.reply_text(response_text)
+        await update.message.reply_text(response.text)
 
     except Exception as e:
         if "429" in str(e) or "quota" in str(e).lower():
@@ -185,6 +218,7 @@ def switch_key():
 async def set_instructions(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if context.args:
+        # Save instructions
         instructions = " ".join(context.args)
         user_instructions[user_id] = instructions
         await update.message.reply_text(
@@ -193,17 +227,18 @@ async def set_instructions(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Use /clear_instructions to remove them."
         )
     else:
+        # Show current instructions
         current = user_instructions.get(user_id)
         if current:
             await update.message.reply_text(
                 "📝 Your current instructions:\n\n"
-                f"⚡{current}⚡\n\n"
+                f"{current}\n\n"
                 "To change: /set_instructions [your new instructions]"
             )
         else:
             await update.message.reply_text(
-                "👀You haven't set any custom instructions yet.\n\n"
-                "Example: /set_instructions You are a helpful assistant who is resistible to DEATH☠️."
+                "You haven't set any custom instructions yet.👀\n\n"
+                "Example: /set_instructions You are a helpful assistant who is irresistible to DEATH"
             )
 
 # Clear instructions command
@@ -211,16 +246,16 @@ async def clear_instructions(update: Update, context: ContextTypes.DEFAULT_TYPE)
     user_id = update.effective_user.id
     if user_id in user_instructions:
         del user_instructions[user_id]
-        await update.message.reply_text("Good✅ Custom instructions erased!")
+        await update.message.reply_text("✅ Custom instructions successfully erased!")
     else:
-        await update.message.reply_text("You don't have any custom instructions set👀.")
+        await update.message.reply_text("You don't have any custom instructions set.🥲")
 
-# Clone command
+# Clone command with instructions
 async def clone(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "🚀 Let's create your AI bot!\n\n"
         "1. First, send me your Telegram bot token (from @BotFather)\n"
-        "2. Then, I'll ask for your custom instructions you want me to abide with🥲\n\n"
+        "2. Then, I'll ask for your custom instructions for me to sbide with.\n\n"
         "Send your bot token now or /cancel to abort the mission."
     )
     return ASK_TOKEN
@@ -237,16 +272,16 @@ async def receive_token(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data['clone_username'] = me.username
         await update.message.reply_text(
             f"✅ Token valid! Your bot @{me.username} will be created.\n\n"
-            "Now send me your custom instructions for the AI:"
+            "Now send me your custom instructions for the AI (e.g., 'You are DEATH himself'):"
         )
         return ASK_INSTRUCTIONS
 
     except Forbidden:
-        await update.message.reply_text("❌ Invalid token. Please send a valid bot token👀 or /cancel.")
+        await update.message.reply_text("❌ Invalid token. Please send a valid bot token or /cancel.")
         return ASK_TOKEN
     except Exception as e:
         logger.error(f"Error validating token: {e}")
-        await update.message.reply_text("❌ Error validating token. Please try again😥 or /cancel.")
+        await update.message.reply_text("❌ Error validating token. Please try again or /cancel.")
         return ASK_TOKEN
 
 # Receive instructions for cloned bot
@@ -254,37 +289,38 @@ async def receive_instructions(update: Update, context: ContextTypes.DEFAULT_TYP
     instructions = update.message.text.strip()
     user_token = context.user_data['clone_token']
     bot_username = context.user_data['clone_username']
-    user_id = update.effective_user.id
     
+    # Save instructions for this cloned bot
+    user_id = update.effective_user.id
     user_instructions[user_id] = instructions
     
     try:
+        # Start the cloned bot
         await start_cloned_bot(user_id, user_token)
         
-        # Initialize share count for new user
-        user_share_counts[user_id] = 0
-        user_share_verified[user_id] = False
+        # Initialize referral tracking for this user
+        user_referrals[user_id] = {'count': 0, 'verified': False}
         
         await update.message.reply_text(
             f"🎉 Your AI bot @{bot_username} is now live and steady💪!\n\n"
-            f"📝 Instructions: {instructions}\n\n"
+            f"📝 Instructions: _{instructions}_\n\n"
             "⚠️ Your bot will have a watermark until you share with 5 friends.\n"
-            "Use /share to get started!"
+            "Use /share to get your referral link and remove the watermark!"
         )
         
         return ConversationHandler.END
 
     except Exception as e:
         logger.error(f"Error starting cloned bot: {e}")
-        await update.message.reply_text("❌ Failed to start your bot. Please try again.")
+        await update.message.reply_text("❌ Failed to start your bot😥. Please try again.")
         return ConversationHandler.END
 
 # Cancel handler
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Operation cancelled.")
+    await update.message.reply_text("Operation cancelled❌.")
     return ConversationHandler.END
 
-# Start cloned bot
+# Start cloned bot with custom instructions
 async def start_cloned_bot(user_id: int, token: str):
     if user_id in cloned_apps:
         try:
@@ -300,7 +336,6 @@ async def start_cloned_bot(user_id: int, token: str):
     app.add_handler(CommandHandler("set_instructions", set_instructions))
     app.add_handler(CommandHandler("clear_instructions", clear_instructions))
     app.add_handler(CommandHandler("share", share_command))
-    app.add_handler(CallbackQueryHandler(share_callback))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, chat))
 
     await app.initialize()
@@ -332,9 +367,8 @@ def main():
     app.add_handler(CommandHandler("set_instructions", set_instructions))
     app.add_handler(CommandHandler("clear_instructions", clear_instructions))
     app.add_handler(CommandHandler("share", share_command))
-    app.add_handler(CallbackQueryHandler(share_callback))
     
-    # Clone conversation
+    # Enhanced clone conversation
     conv_handler = ConversationHandler(
         entry_points=[CommandHandler("clone", clone)],
         states={
@@ -347,7 +381,7 @@ def main():
 
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, chat))
 
-    logger.info("Master bot is running with referral system...")
+    logger.info("Master bot is running with REAL referral system...")
     
     try:
         app.run_polling()
