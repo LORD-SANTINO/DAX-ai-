@@ -175,38 +175,48 @@ async def share_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # Enhanced chat handler with REAL watermark system
 async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if model is None:
-        await update.message.reply_text("⚠️ Bot is not properly configured. Please contact the administrator.@dn_feedbackbot")
+        await update.message.reply_text(
+            "⚠️ Bot is not properly configured. Please contact the administrator."
+        )
         return
-        
+
     user_message = update.message.text
     user_id = update.effective_user.id
-    
+
     try:
-        # Check if this user has custom instructions
         instructions = user_instructions.get(user_id, "")
-        
-        # Create enhanced prompt with custom instructions
         enhanced_prompt = f"{instructions}\n\nUser: {user_message}" if instructions else user_message
-        
+
         response = model.generate_content(enhanced_prompt)
         response_text = response.text
-        
-        # Add watermark if user has cloned a bot but hasn't reached 5 REAL referrals
-        if user_id in cloned_apps and (user_id not in user_referrals or not user_referrals[user_id].get('verified', False)):
-            remaining = 5 - user_referrals.get(user_id, {'count': 0})['count']
-            watermark = f"\n\n┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n🔹 Cloned by @daxotp_bot\n📊 {remaining} referrals needed to remove"
+
+        # Add watermark if needed
+        if user_id in cloned_apps and (
+            user_id not in user_referrals or not user_referrals[user_id].get("verified", False)
+        ):
+            ref_data = user_referrals.get(user_id, {})
+            remaining = 5 - ref_data.get("count", 0)
+            watermark = (
+                "\n\n┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈"
+                "\n🔹 Cloned by @daxotp_bot"
+                f"\n📊 {remaining} referrals needed to remove"
+            )
             response_text += watermark
-        
-        await update.message.reply_text(response.text)
+
+        # ✅ Send the correct variable
+        await update.message.reply_text(response_text)
 
     except Exception as e:
         if "429" in str(e) or "quota" in str(e).lower():
             switch_key()
-            await update.message.reply_text("⚠️ Quota exceeded, switching API key... Please try again.")
+            await update.message.reply_text(
+                "⚠️ Quota exceeded, switching API key... Please try again."
+            )
         else:
             logger.error(f"Error: {e}")
-            await update.message.reply_text("⚠️ Sorry, I encountered an error processing your request.")
-
+            await update.message.reply_text(
+                "⚠️ Sorry, I encountered an error processing your request."
+            )
 # Switch to next API key for Gemini
 def switch_key():
     global current_key_index
