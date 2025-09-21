@@ -176,10 +176,7 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ref_data = user_referrals.get(user_id, {})
             remaining = 5 - ref_data.get("count", 0)
             watermark = (
-                "\n\n┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈"
-                "\n🔹 Cloned by @daxotp_bot"
-                f"\n📊 {remaining} referrals needed to remove"
-            )
+                "")
             response_text += watermark
 
         await update.message.reply_text(response_text)
@@ -283,9 +280,11 @@ async def receive_instructions(update: Update, context: ContextTypes.DEFAULT_TYP
     bot_username = context.user_data['clone_username']
     user_id = update.effective_user.id
     user_instructions[user_id] = instructions
+    owner_username = update.effective_user.username or (update.effective_user.first_name or f"user_{user_id}")
+    
     try:
         # Persist clone metadata (encrypts token)
-        save_clone(user_id, user_token, bot_username, instructions)
+        save_clone(user_id, user_token, bot_username, instructions, owner_username)
 
         # Spawn a detached worker process that runs the cloned bot
         spawn_clone_worker(user_id)
