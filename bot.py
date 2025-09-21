@@ -12,7 +12,7 @@ from telegram.ext import (
 from telegram.error import Forbidden
 
 # local DB helpers
-from db import save_clone, list_active_clones, get_clone
+from db import save_clone, list_active_clones, get_clone, increment_referral, get_referral, REFERRAL_THRESHOLD
 
 # Logging
 logging.basicConfig(
@@ -86,38 +86,47 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle_referral(update: Update, context: ContextTypes.DEFAULT_TYPE, referral_code: str, new_user_id: int, new_username: str):
     if referral_code in referral_codes:
         referrer_id = referral_codes[referral_code]
+        # Avoid counting the same join multiple times; track in referral_users (in-memory)
         if new_user_id not in referral_users:
             referral_users[new_user_id] = referrer_id
-            if referrer_id in user_referrals:
-                user_referrals[referrer_id]['count'] += 1
-                logger.info(f"User {referrer_id} got a referral from {new_user_id}. Total: {user_referrals[referrer_id]['count']}")
-                try:
-                    remaining = 5 - user_referrals[referrer_id]['count']
-                    if remaining > 0:
-                        await context.bot.send_message(
-                            referrer_id,
-                            f"🎉 @{new_username} joined using your referral link!\n"
-                            f"📊 You need {remaining} more referrals to remove the watermark."
-                        )
-                    else:
-                        user_referrals[referrer_id]['verified'] = True
-                        await context.bot.send_message(
-                            referrer_id,
-                            "✨ Premium Experience Unlocked! ✨\n\n"
-                            "🎊 Thank you for sharing the love!\n"
-                            "✅ The watermark has been removed from your bot\n"
-                        )
-                except Exception as e:
-                    logger.error(f"Could not notify referrer {referrer_id}: {e}")
+            # Persist increment and get updated row
+            try:
+                ref_row = increment_referral(referrer_id)
+            except Exception as e:
+                logger.error(f"Failed to increment persisted referral for {referrer_id}: {e}")
+                ref_row = get_referral(referrer_id) or {"count": 0, "verified": False}
+
+            # Update in-memory copy for quick messaging and compatibility
+            if referrer_id not in user_referrals:
+                user_referrals[referrer_id] = {'count': ref_row.get("count", 0), 'verified': ref_row.get("verified", False)}
+            else:
+                user_referrals[referrer_id]['count'] = ref_row.get("count", 0)
+                user_referrals[referrer_id]['verified'] = ref_row.get("verified", False)
+
+            try:
+                remaining = max(0, REFERRAL_THRESHOLD - ref_row.get("count", 0))
+                if not ref_row.get("verified", False) and ref_row.get("count", 0) >= REFERRAL_THRESHOLD:
+                    user_referrals[referrer_id]['verified'] = True
+                    await context.bot.send_message(
+                        referrer_id,
+                        "✨ Premium Experience Unlocked! ✨\n\n🎊 Thank you for sharing!\n✅ The watermark has been removed from your bot."
+                    )
+                else:
+                    await context.bot.send_message(
+                        referrer_id,
+                        f"🎉 @{new_username} joined using your referral link!\n📊 You now have {ref_row.get('count',0)} referrals. {remaining} more to remove the watermark."
+                    )
+            except Exception as e:
+                logger.error(f"Could not notify referrer {referrer_id}: {e}")
+
         await update.message.reply_text(
-            f"👋 Welcome! You joined through a friend's referral.\n\n"
-            "Use /clone to create your own AI bot or just start chatting! 🚀"
+            f"👋 Welcome! You joined through a friend's referral.\n\nUse /clone to create your own AI bot or just start chatting! 🚀"
         )
     else:
+        # default greeting when no valid referral
         await update.message.reply_text(
-            "🤖 Hello! Welcome to the DAX AI bot experience!\n\n"
-            "Use /clone to create your own AI assistant with custom instructions!"
-        )
+            "🤖 Hello! Welcome to the DAX AI bot experience!\n\nUse /clone to create your own AI assistant with custom instructions!"
+)
 
 async def share_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
