@@ -19,6 +19,7 @@ def init_db(path: str = DB_PATH):
     cur.execute("""
     CREATE TABLE IF NOT EXISTS clones (
         user_id INTEGER PRIMARY KEY,
+        owner_username TEXT DEFAULT '',
         bot_username TEXT,
         token_encrypted BLOB,
         instructions TEXT,
@@ -37,19 +38,24 @@ def init_db(path: str = DB_PATH):
 
 _conn = init_db(DB_PATH)
 
-def save_clone(user_id: int, token_plain: str, bot_username: str, instructions: str):
+def save_clone(user_id: int, token_plain: str, bot_username: str, instructions: str, owner_username: str = ""):
+    """
+    Save or update a clone record. owner_username is the Telegram username of the owner
+    (the person who created the clone). If not provided it will default to empty string.
+    """
     f = get_fernet()
     token_enc = f.encrypt(token_plain.encode())
     cur = _conn.cursor()
     cur.execute("""
-    INSERT INTO clones (user_id, bot_username, token_encrypted, instructions, active)
-    VALUES (?, ?, ?, ?, 1)
+    INSERT INTO clones (user_id, owner_username, bot_username, token_encrypted, instructions, active)
+    VALUES (?, ?, ?, ?, ?, 1)
     ON CONFLICT(user_id) DO UPDATE SET
+        owner_username=excluded.owner_username,
         bot_username=excluded.bot_username,
         token_encrypted=excluded.token_encrypted,
         instructions=excluded.instructions,
         active=1
-    """, (user_id, bot_username, token_enc, instructions))
+    """, (user_id, owner_username, bot_username, token_enc, instructions))
     _conn.commit()
 
 def deactivate_clone(user_id: int):
@@ -59,16 +65,23 @@ def deactivate_clone(user_id: int):
 
 def get_clone(user_id: int) -> Optional[Dict]:
     cur = _conn.cursor()
-    cur.execute("SELECT user_id, bot_username, token_encrypted, instructions, active FROM clones WHERE user_id=?", (user_id,))
+    cur.execute("SELECT user_id, owner_username, bot_username, token_encrypted, instructions, active FROM clones WHERE user_id=?", (user_id,))
     row = cur.fetchone()
     if not row:
         return None
     f = get_fernet()
     try:
-        token = f.decrypt(row[2]).decode()
+        token = f.decrypt(row[3]).decode()
     except InvalidToken:
         raise RuntimeError("Failed to decrypt token: invalid MASTER_KEY or corrupted DB")
-    return {"user_id": row[0], "bot_username": row[1], "token": token, "instructions": row[3], "active": bool(row[4])}
+    return {
+        "user_id": row[0],
+        "owner_username": row[1] or "",
+        "bot_username": row[2],
+        "token": token,
+        "instructions": row[4],
+        "active": bool(row[5])
+    }
 
 def list_active_clones() -> List[Dict]:
     cur = _conn.cursor()
@@ -81,11 +94,8 @@ def list_active_clones() -> List[Dict]:
             results.append(c)
     return results
 
-# -------------------------
-# Referral helpers
-# -------------------------
+# Referral helpers (kept as before)
 def get_referral(user_id: int) -> Optional[Dict]:
-    """Return {'user_id': id, 'count': int, 'verified': bool} or None."""
     cur = _conn.cursor()
     cur.execute("SELECT user_id, count, verified FROM referrals WHERE user_id=?", (user_id,))
     row = cur.fetchone()
@@ -94,16 +104,11 @@ def get_referral(user_id: int) -> Optional[Dict]:
     return {"user_id": row[0], "count": row[1], "verified": bool(row[2])}
 
 def ensure_referral_row(user_id: int):
-    """Ensure a referral row exists for user_id."""
     cur = _conn.cursor()
     cur.execute("INSERT OR IGNORE INTO referrals(user_id, count, verified) VALUES (?, 0, 0)", (user_id,))
     _conn.commit()
 
 def increment_referral(user_id: int) -> Dict:
-    """
-    Increment the referral count for user_id.
-    Returns the updated row as dict. If the count reaches REFERRAL_THRESHOLD, verified is set True.
-    """
     ensure_referral_row(user_id)
     cur = _conn.cursor()
     cur.execute("UPDATE referrals SET count = count + 1 WHERE user_id=?", (user_id,))
