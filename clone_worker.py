@@ -151,7 +151,7 @@ async def chat_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error("Gemini error: %s", e)
         if "429" in err_str or "quota" in err_str or "rate" in err_str:
             rotate_gemini_key()
-            await update.message.reply_text("⚠️ Bug error — please try again.")
+            await update.message.reply_text("Bug error😥 — please try again.")
         else:
             await update.message.reply_text("⚠️ Sorry, I couldn't process that right now. Try again later")
 
