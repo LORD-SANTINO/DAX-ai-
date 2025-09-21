@@ -313,7 +313,7 @@ async def shutdown_application():
 def main():
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
     for h in get_handlers():
-    app.add_handler(h)
+        app.add_handler(h)
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("set_instructions", set_instructions))
     app.add_handler(CommandHandler("clear_instructions", clear_instructions))
