@@ -4,7 +4,7 @@ import logging
 import asyncio
 from typing import List
 
-from db import get_clone, get_referral, REFERRAL_THRESHOLD, save_clone
+from db import get_clone, save_clone, get_referral, REFERRAL_THRESHOLD
 
 # genai (Gemini)
 import google.generativeai as genai
@@ -57,18 +57,25 @@ def rotate_gemini_key():
     logger.warning("Rotated Gemini API key to index %d", current_key_index + 1)
 
 def owner_remaining_referrals() -> (int, bool):
-    """
-    Return (remaining_needed, verified_bool)
-    """
     row = get_referral(CLONE_USER_ID)
     if not row:
-        # no row => none referred yet
         return REFERRAL_THRESHOLD, False
     remaining = max(0, REFERRAL_THRESHOLD - row["count"])
     return remaining, row["verified"]
 
+# New start handler that identifies owner
 async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Hello — this is your cloned bot. Send a message to chat.")
+    sender = update.effective_user
+    sender_name = sender.first_name or sender.username or str(sender.id)
+    clone = get_clone(CLONE_USER_ID)
+    owner_username = clone.get("owner_username", "") if clone else ""
+    # If owner_username is empty, fall back to textual owner id
+    owner_display = f"@{owner_username}" if owner_username else f"user_{CLONE_USER_ID}"
+    # Compose greeting exactly as requested
+    await update.message.reply_text(f"Hey {sender_name}, I am {owner_display} ai do you understand what I mean?")
+
+# Keep set_instructions / clear_instructions / chat_handler as you previously implemented.
+# Below are minimal placeholders (replace with your full implementations that call model.generate_content etc.)
 
 async def set_instructions(update: Update, context: ContextTypes.DEFAULT_TYPE):
     sender_id = update.effective_user.id
@@ -83,7 +90,7 @@ async def set_instructions(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if args:
         new_instructions = " ".join(args).strip()
         try:
-            save_clone(CLONE_USER_ID, clone["token"], clone.get("bot_username", ""), new_instructions)
+            save_clone(CLONE_USER_ID, clone["token"], clone.get("bot_username", ""), new_instructions, clone.get("owner_username",""))
             await update.message.reply_text("✅ Instructions updated.")
         except Exception as e:
             logger.error("Failed saving instructions: %s", e)
@@ -102,24 +109,23 @@ async def clear_instructions(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text("❌ Clone record not found.")
         return
     try:
-        save_clone(CLONE_USER_ID, clone["token"], clone.get("bot_username", ""), "")
+        save_clone(CLONE_USER_ID, clone["token"], clone.get("bot_username", ""), "", clone.get("owner_username",""))
         await update.message.reply_text("✅ Instructions cleared.")
     except Exception as e:
         logger.error("Failed clearing instructions: %s", e)
         await update.message.reply_text("❌ Failed to clear instructions.")
 
 async def chat_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # keep your previously working model code here; this placeholder maintains watermark logic
     clone = get_clone(CLONE_USER_ID)
     instructions = clone.get("instructions", "") if clone else ""
     user_text = update.message.text or ""
-
-    # If no model configured, fallback to echo with instructions
     if model is None:
         base_response = f"{instructions}\n\nYou said: {user_text}" if instructions else f"You said: {user_text}"
         remaining, verified = owner_remaining_referrals()
         if not verified:
             watermark = (
-                "\n\n┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
+                "\n\n┈┈┈┈┈┈┈┈┈┈┈┈\n"
                 "🔹 Made by @dn_aimaker_bot\n"
                 f"📊 {remaining} referrals needed to remove watermark"
             )
@@ -128,15 +134,13 @@ async def chat_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     prompt = f"{instructions}\n\nUser: {user_text}" if instructions else user_text
-
     try:
         gen_response = await asyncio.to_thread(model.generate_content, prompt)
         response_text = getattr(gen_response, "text", None) or str(gen_response)
-        # Append watermark if owner still not verified
         remaining, verified = owner_remaining_referrals()
         if not verified:
             watermark = (
-                "\n\n┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
+                "\n\n┈┈┈┈┈┈┈┈┈┈┈┈\n"
                 "🔹 Made by @dn_aimaker_bot\n"
                 f"📊 {remaining} referrals needed to remove watermark"
             )
@@ -147,9 +151,9 @@ async def chat_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error("Gemini error: %s", e)
         if "429" in err_str or "quota" in err_str or "rate" in err_str:
             rotate_gemini_key()
-            await update.message.reply_text("⚠️ Sorry i couldn't process your Gpt-4 response— please try again.")
+            await update.message.reply_text("⚠️ Bug error — please try again.")
         else:
-            await update.message.reply_text("⚠️ Sorry, I couldn't process that right now. Try again later.")
+            await update.message.reply_text("⚠️ Sorry, I couldn't process that right now. Try again later")
 
 def main():
     configure_gemini()
