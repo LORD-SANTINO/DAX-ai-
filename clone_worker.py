@@ -25,6 +25,7 @@ GEMINI_API_KEYS: List[str] = [
     k for k in [
         os.getenv("GEMINI_API_KEY_1"),
         os.getenv("GEMINI_API_KEY_2"),
+        os.getenv("GEMINI_API_KEY_3"),
     ] if k
 ]
 current_key_index = 0
