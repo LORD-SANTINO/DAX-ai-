@@ -157,37 +157,34 @@ async def share_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # Chat handler (uses model) - kept simple; use asyncio.to_thread if model is blocking
 async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Master bot: respond without appending any watermark.
     if model is None:
         await update.message.reply_text("⚠️ Bot is not properly configured. Please contact the administrator.")
         return
+
     user_message = update.message.text or ""
     user_id = update.effective_user.id
-    try:
-        instructions = user_instructions.get(user_id, "")
-        enhanced_prompt = f"{instructions}\n\nUser: {user_message}" if instructions else user_message
 
-        # If model.generate_content is blocking, run in thread
-        resp = await asyncio.to_thread(model.generate_content, enhanced_prompt)
+    try:
+        # Use per-user instructions if present
+        instructions = user_instructions.get(user_id, "")
+        prompt = f"{instructions}\n\nUser: {user_message}" if instructions else user_message
+
+        # Call model off the event loop if blocking
+        resp = await asyncio.to_thread(model.generate_content, prompt)
         response_text = getattr(resp, "text", str(resp))
 
-        if user_id in [c['user_id'] for c in list_active_clones()] and (
-            user_id not in user_referrals or not user_referrals[user_id].get("verified", False)
-        ):
-            ref_data = user_referrals.get(user_id, {})
-            remaining = 5 - ref_data.get("count", 0)
-            watermark = (
-                "")
-            response_text += watermark
-
+        # NOTE: No watermark appended here — watermark is handled only by clone workers.
         await update.message.reply_text(response_text)
+
     except Exception as e:
         if "429" in str(e) or "quota" in str(e).lower():
             switch_key()
             await update.message.reply_text("⚠️ Quota exceeded, switching API key... Please try again.")
         else:
-            logger.error(f"Error: {e}")
+            logger.error(f"Error in master chat handler: {e}")
             await update.message.reply_text("⚠️ Sorry, I encountered an error processing your request.")
-
+            
 def switch_key():
     global current_key_index
     current_key_index = (current_key_index + 1) % len(GEMINI_API_KEYS)
