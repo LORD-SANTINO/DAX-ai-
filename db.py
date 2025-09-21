@@ -5,6 +5,7 @@ from cryptography.fernet import Fernet, InvalidToken
 
 DB_PATH = os.getenv("DB_PATH", "clones.db")
 MASTER_KEY = os.getenv("MASTER_KEY")  # must be set (Fernet key)
+REFERRAL_THRESHOLD = int(os.getenv("REFERRAL_THRESHOLD", "5"))
 
 if MASTER_KEY is None:
     raise RuntimeError("MASTER_KEY environment variable is required to encrypt tokens. Generate with Fernet.generate_key().")
@@ -79,3 +80,51 @@ def list_active_clones() -> List[Dict]:
         if c:
             results.append(c)
     return results
+
+# -------------------------
+# Referral helpers
+# -------------------------
+def get_referral(user_id: int) -> Optional[Dict]:
+    """Return {'user_id': id, 'count': int, 'verified': bool} or None."""
+    cur = _conn.cursor()
+    cur.execute("SELECT user_id, count, verified FROM referrals WHERE user_id=?", (user_id,))
+    row = cur.fetchone()
+    if not row:
+        return None
+    return {"user_id": row[0], "count": row[1], "verified": bool(row[2])}
+
+def ensure_referral_row(user_id: int):
+    """Ensure a referral row exists for user_id."""
+    cur = _conn.cursor()
+    cur.execute("INSERT OR IGNORE INTO referrals(user_id, count, verified) VALUES (?, 0, 0)", (user_id,))
+    _conn.commit()
+
+def increment_referral(user_id: int) -> Dict:
+    """
+    Increment the referral count for user_id.
+    Returns the updated row as dict. If the count reaches REFERRAL_THRESHOLD, verified is set True.
+    """
+    ensure_referral_row(user_id)
+    cur = _conn.cursor()
+    cur.execute("UPDATE referrals SET count = count + 1 WHERE user_id=?", (user_id,))
+    _conn.commit()
+    cur.execute("SELECT count, verified FROM referrals WHERE user_id=?", (user_id,))
+    count, verified = cur.fetchone()
+    if not bool(verified) and count >= REFERRAL_THRESHOLD:
+        cur.execute("UPDATE referrals SET verified = 1 WHERE user_id=?", (user_id,))
+        _conn.commit()
+        verified = 1
+    return {"user_id": user_id, "count": count, "verified": bool(verified)}
+
+def set_referral_verified(user_id: int, verified: bool = True):
+    ensure_referral_row(user_id)
+    cur = _conn.cursor()
+    cur.execute("UPDATE referrals SET verified = ? WHERE user_id=?", (1 if verified else 0, user_id))
+    _conn.commit()
+
+def set_referral_count(user_id: int, count: int):
+    ensure_referral_row(user_id)
+    cur = _conn.cursor()
+    verified = 1 if count >= REFERRAL_THRESHOLD else 0
+    cur.execute("UPDATE referrals SET count = ?, verified = ? WHERE user_id=?", (count, verified, user_id))
+    _conn.commit()
