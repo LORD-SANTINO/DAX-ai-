@@ -13,7 +13,6 @@ from telegram.error import Forbidden
 
 # local DB helpers
 from db import save_clone, list_active_clones, get_clone, increment_referral, get_referral, REFERRAL_THRESHOLD
-from broadcast_handlers_postgres import get_handlers
 
 # Logging
 logging.basicConfig(
