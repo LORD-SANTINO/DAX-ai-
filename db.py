@@ -169,4 +169,8 @@ def list_users() -> List[Dict]:
             "last_seen": r[4]
         } for r in cur.fetchall()
     ]
-    
+
+def list_all_user_ids() -> list[int]:
+    cur = _conn.cursor()
+    cur.execute("SELECT user_id FROM users")
+    return [row[0] for row in cur.fetchall()]
