@@ -223,7 +223,7 @@ async def set_instructions(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Check if the sender is allowed (e.g., your own ID or a list of admins)
-    admin_ids = [123456789]  # replace with your Telegram ID(s)
+    admin_ids = [7243305432]  # replace with your Telegram ID(s)
     if update.effective_user.id not in admin_ids:
         await update.message.reply_text("❌ You are not authorized to broadcast.")
         return
