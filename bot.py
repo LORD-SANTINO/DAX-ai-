@@ -65,14 +65,17 @@ referral_users = {}
 
 # Start command (same as before)
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
+    user = update.effective_user
+    user_id = user.id
+
     upsert_user(
-        user_id=user.id,
+        user_id=user_id,
         username=user.username or "",
         first_name=user.first_name or "",
         last_name=user.last_name or ""
     )
-    username = update.effective_user.username or f"user_{user_id}"
+
+    username = user.username or f"user_{user_id}"
     if context.args and context.args[0].startswith('ref_'):
         referral_code = context.args[0]
         await handle_referral(update, context, referral_code, user_id, username)
@@ -87,7 +90,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "🤖 Hello! I'm your AI bot (GPT-powered). Send me a message!\n\n"
         "Use /clone to create your own AI bot with your own custom instructions!"
-    )
+)
 
 async def handle_referral(update: Update, context: ContextTypes.DEFAULT_TYPE, referral_code: str, new_user_id: int, new_username: str):
     if referral_code in referral_codes:
