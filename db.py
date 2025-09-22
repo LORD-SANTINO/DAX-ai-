@@ -2,6 +2,7 @@ import os
 import sqlite3
 from typing import List, Dict, Optional
 from cryptography.fernet import Fernet, InvalidToken
+from datetime import datetime
 
 DB_PATH = os.getenv("DB_PATH", "clones.db")
 MASTER_KEY = os.getenv("MASTER_KEY")  # must be set (Fernet key)
@@ -26,6 +27,15 @@ def init_db(path: str = DB_PATH):
         active INTEGER DEFAULT 1
     )
     """)
+    cur.execute("""
+CREATE TABLE IF NOT EXISTS users (
+    user_id     INTEGER PRIMARY KEY,
+    username    TEXT DEFAULT '',
+    first_name  TEXT DEFAULT '',
+    last_name   TEXT DEFAULT '',
+    last_seen   TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+)
+""")
     cur.execute("""
     CREATE TABLE IF NOT EXISTS referrals (
         user_id INTEGER PRIMARY KEY,
@@ -133,3 +143,30 @@ def set_referral_count(user_id: int, count: int):
     verified = 1 if count >= REFERRAL_THRESHOLD else 0
     cur.execute("UPDATE referrals SET count = ?, verified = ? WHERE user_id=?", (count, verified, user_id))
     _conn.commit()
+
+def upsert_user(user_id: int, username: str = "", first_name: str = "", last_name: str = ""):
+    cur = _conn.cursor()
+    cur.execute("""
+        INSERT INTO users (user_id, username, first_name, last_name, last_seen)
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(user_id) DO UPDATE SET
+            username = excluded.username,
+            first_name = excluded.first_name,
+            last_name  = excluded.last_name,
+            last_seen  = excluded.last_seen
+    """, (user_id, username, first_name, last_name, datetime.utcnow()))
+    _conn.commit()
+
+def list_users() -> List[Dict]:
+    cur = _conn.cursor()
+    cur.execute("SELECT user_id, username, first_name, last_name, last_seen FROM users")
+    return [
+        {
+            "user_id": r[0],
+            "username": r[1],
+            "first_name": r[2],
+            "last_name": r[3],
+            "last_seen": r[4]
+        } for r in cur.fetchall()
+    ]
+    
