@@ -12,7 +12,7 @@ from telegram.ext import (
 from telegram.error import Forbidden
 
 # local DB helpers
-from db import save_clone, list_active_clones, get_clone, increment_referral, get_referral, REFERRAL_THRESHOLD
+from db import save_clone, list_active_clones, get_clone, increment_referral, get_referral, upsert_user, REFERRAL_THRESHOLD
 
 # Logging
 logging.basicConfig(
@@ -66,6 +66,12 @@ referral_users = {}
 # Start command (same as before)
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
+    upsert_user(
+        user_id=user.id,
+        username=user.username or "",
+        first_name=user.first_name or "",
+        last_name=user.last_name or ""
+    )
     username = update.effective_user.username or f"user_{user_id}"
     if context.args and context.args[0].startswith('ref_'):
         referral_code = context.args[0]
