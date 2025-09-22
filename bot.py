@@ -350,6 +350,7 @@ def main():
     app.add_handler(CommandHandler("set_instructions", set_instructions))
     app.add_handler(CommandHandler("clear_instructions", clear_instructions))
     app.add_handler(CommandHandler("share", share_command))
+    app.add_handler(CommandHandler("broadcast", broadcast))
     conv_handler = ConversationHandler(
         entry_points=[CommandHandler("clone", clone)],
         states={
