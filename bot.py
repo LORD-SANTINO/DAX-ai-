@@ -9,10 +9,10 @@ from telegram.ext import (
     ApplicationBuilder, CommandHandler, MessageHandler,
     filters, ContextTypes, ConversationHandler
 )
-from telegram.error import Forbidden
+from telegram.error import Forbidden, BadRequest, RetryAfter, TelegramError
 
 # local DB helpers
-from db import save_clone, list_active_clones, get_clone, increment_referral, get_referral, upsert_user, REFERRAL_THRESHOLD
+from db import save_clone, list_all_user_ids, list_active_clones, get_clone, increment_referral, get_referral, upsert_user, REFERRAL_THRESHOLD
 
 # Logging
 logging.basicConfig(
@@ -220,6 +220,35 @@ async def set_instructions(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "You haven't set any custom instructions yet.👀\n\n"
                 "Example: /set_instructions You are a helpful assistant who is irresistible to DEATH"
             )
+
+async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Check if the sender is allowed (e.g., your own ID or a list of admins)
+    admin_ids = [123456789]  # replace with your Telegram ID(s)
+    if update.effective_user.id not in admin_ids:
+        await update.message.reply_text("❌ You are not authorized to broadcast.")
+        return
+
+    if not context.args:
+        await update.message.reply_text("Usage: /broadcast <your message>")
+        return
+
+    text_to_send = " ".join(context.args)
+    sent, failed = 0, 0
+
+    for uid in list_all_user_ids():
+        try:
+            await context.bot.send_message(uid, text_to_send)
+            sent += 1
+            await asyncio.sleep(0.05)  # small delay to avoid hitting Telegram rate limits
+        except (Forbidden, BadRequest):
+            failed += 1  # user blocked bot or invalid
+        except RetryAfter as e:
+            await asyncio.sleep(e.retry_after + 1)
+            continue
+        except TelegramError:
+            failed += 1
+
+    await update.message.reply_text(f"✅ Broadcast finished: {sent} sent, {failed} failed.")
 
 async def clear_instructions(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
