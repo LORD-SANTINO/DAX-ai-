@@ -83,6 +83,56 @@ async def check_and_exit_if_bot_dead(token):
         logger.info("Clone bot's token is invalid or deleted. Shutting down.")
         sys.exit(0)
 
+async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    sender = update.effective_user
+    sender_name = sender.first_name or sender.username or str(sender.id)
+    clone = get_clone(CLONE_USER_ID)
+    owner_username = clone.get("owner_username", "") if clone else ""
+    # If owner_username is empty, fall back to textual owner id
+    owner_display = f"@{owner_username}" if owner_username else f"user_{CLONE_USER_ID}"
+    # Compose greeting exactly as requested
+    await update.message.reply_text(f"Hey {sender_name}, I am {owner_display} ai do you understand what I mean?")
+
+# Keep set_instructions / clear_instructions / chat_handler as you previously implemented.
+# Below are minimal placeholders (replace with your full implementations that call model.generate_content etc.)
+
+async def set_instructions(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    sender_id = update.effective_user.id
+    if sender_id != CLONE_USER_ID:
+        await update.message.reply_text("❌ Only the owner can change instructions.")
+        return
+    clone = get_clone(CLONE_USER_ID)
+    if not clone:
+        await update.message.reply_text("❌ Clone record not found.")
+        return
+    args = context.args or []
+    if args:
+        new_instructions = " ".join(args).strip()
+        try:
+            save_clone(CLONE_USER_ID, clone["token"], clone.get("bot_username", ""), new_instructions, clone.get("owner_username",""))
+            await update.message.reply_text("✅ Instructions updated.")
+        except Exception as e:
+            logger.error("Failed saving instructions: %s", e)
+            await update.message.reply_text("❌ Failed to save instructions.")
+    else:
+        current = clone.get("instructions", "") or "(none)"
+        await update.message.reply_text(f"📝 Current instructions:\n\n{current}\n\nTo change: /set_instructions [text]\nTo clear: /clear_instructions")
+
+async def clear_instructions(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    sender_id = update.effective_user.id
+    if sender_id != CLONE_USER_ID:
+        await update.message.reply_text("❌ Only the owner can clear instructions.")
+        return
+    clone = get_clone(CLONE_USER_ID)
+    if not clone:
+        await update.message.reply_text("❌ Clone record not found.")
+        return
+    try:
+        save_clone(CLONE_USER_ID, clone["token"], clone.get("bot_username", ""), "", clone.get("owner_username",""))
+        await update.message.reply_text("✅ Instructions cleared.")
+    except Exception as e:
+        logger.error("Failed clearing instructions: %s", e)
+        await update.message.reply_text("❌ Failed to clear instructions.")
 # Chat handler: process user messages
 async def chat_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     clone = get_clone(CLONE_USER_ID)
