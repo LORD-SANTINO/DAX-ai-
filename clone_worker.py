@@ -4,7 +4,6 @@ import logging
 import asyncio
 from typing import List
 
-import telegram  # Added for API calls
 from db import get_clone, save_clone, get_referral, REFERRAL_THRESHOLD
 
 # genai (Gemini)
@@ -58,31 +57,14 @@ def rotate_gemini_key():
     configure_gemini()
     logger.warning("Rotated Gemini API key to index %d", current_key_index + 1)
 
-def owner_remaining_referrals() -> tuple[int, bool]:
-    """
-    Returns (remaining_needed, verified) for the clone owner.
-    Looks up the referral count in the DB using CLONE_USER_ID.
-    """
-    ref = get_referral(CLONE_USER_ID) or {"count": 0, "verified": False}
-    remaining = max(0, REFERRAL_THRESHOLD - ref["count"])
-    return remaining, bool(ref["verified"])
+def owner_remaining_referrals() -> (int, bool):
+    row = get_referral(CLONE_USER_ID)
+    if not row:
+        return REFERRAL_THRESHOLD, False
+    remaining = max(0, REFERRAL_THRESHOLD - row["count"])
+    return remaining, row["verified"]
 
-# --- New: Check if clone's bot token is still active ---
-async def check_clone_alive(token):
-    try:
-        bot = telegram.Bot(token=token)
-        await bot.get_me()  # Will raise if token invalid or bot deleted
-        return True
-    except telegram.error.TelegramError:
-        return False
-
-# Graceful shutdown if bot is no longer active
-async def check_and_exit_if_bot_dead(token):
-    alive = await check_clone_alive(token)
-    if not alive:
-        logger.info("Clone bot's token is invalid or deleted. Shutting down.")
-        sys.exit(0)
-
+# New start handler that identifies owner
 async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     sender = update.effective_user
     sender_name = sender.first_name or sender.username or str(sender.id)
@@ -133,18 +115,12 @@ async def clear_instructions(update: Update, context: ContextTypes.DEFAULT_TYPE)
     except Exception as e:
         logger.error("Failed clearing instructions: %s", e)
         await update.message.reply_text("❌ Failed to clear instructions.")
-# Chat handler: process user messages
-async def chat_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    clone = get_clone(CLONE_USER_ID)
-    token = clone.get("token") if clone else None
-    if token:
-        # Check if bot still active
-        await check_and_exit_if_bot_dead(token)
 
-    # Continue with existing chat logic...
+async def chat_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # keep your previously working model code here; this placeholder maintains watermark logic
+    clone = get_clone(CLONE_USER_ID)
     instructions = clone.get("instructions", "") if clone else ""
     user_text = update.message.text or ""
-
     if model is None:
         base_response = f"{instructions}\n\nYou said: {user_text}" if instructions else f"You said: {user_text}"
         remaining, verified = owner_remaining_referrals()
@@ -158,7 +134,6 @@ async def chat_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(base_response)
         return
 
-    # Generate response with Gemini model
     prompt = f"{instructions}\n\nUser: {user_text}" if instructions else user_text
     try:
         gen_response = await asyncio.to_thread(model.generate_content, prompt)
@@ -173,15 +148,15 @@ async def chat_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             response_text += watermark
         await update.message.reply_text(response_text)
     except Exception as e:
-        logger.error("Gemini API error: %s", e)
-        if "429" in str(e) or "quota" in str(e) or "rate" in str(e):
+        err_str = str(e).lower()
+        logger.error("Gemini error: %s", e)
+        if "429" in err_str or "quota" in err_str or "rate" in err_str:
             rotate_gemini_key()
             await update.message.reply_text("Bug error😥 — please try again.")
         else:
             await update.message.reply_text("⚠️ Sorry, I couldn't process that right now. Try again later")
 
-
-async def main():
+def main():
     configure_gemini()
     clone = get_clone(CLONE_USER_ID)
     if not clone:
@@ -192,14 +167,12 @@ async def main():
     logger.info("Starting clone worker for user %s (%s)", CLONE_USER_ID, username)
 
     app = ApplicationBuilder().token(token).build()
-    # Register your handlers
     app.add_handler(CommandHandler("start", start_cmd))
     app.add_handler(CommandHandler("set_instructions", set_instructions))
     app.add_handler(CommandHandler("clear_instructions", clear_instructions))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, chat_handler))
 
-    # Run the bot
-    await app.run_polling()
+    app.run_polling()
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
