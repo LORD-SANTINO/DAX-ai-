@@ -39,7 +39,7 @@ def configure_gemini():
         return
     try:
         genai.configure(api_key=GEMINI_API_KEYS[current_key_index])
-        model = genai.GenerativeModel("gemini-1.5-flash")
+        model = genai.GenerativeModel("gemini-2.5-flash")
         logger.info("Gemini configured with key #%d", current_key_index + 1)
     except Exception as e:
         logger.error("Failed to configure Gemini with key #%d: %s", current_key_index + 1, e)
