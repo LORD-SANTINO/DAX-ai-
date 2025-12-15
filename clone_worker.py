@@ -127,7 +127,7 @@ async def chat_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not verified:
             watermark = (
                 "\n\n┈┈┈┈┈┈┈┈┈┈┈┈\n"
-                "🔹 Made by @dn_aimaker_bot\n"
+                "🔹 Made by @aimastercreatorrobot\n"
                 f"📊 {remaining} referrals needed to remove watermark"
             )
             base_response += watermark
@@ -142,7 +142,7 @@ async def chat_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not verified:
             watermark = (
                 "\n\n┈┈┈┈┈┈┈┈┈┈┈┈\n"
-                "🔹 Made by @dn_aimaker_bot\n"
+                "🔹 Made by @aimastercreatorrobot\n"
                 f"📊 {remaining} referrals needed to remove watermark"
             )
             response_text += watermark
